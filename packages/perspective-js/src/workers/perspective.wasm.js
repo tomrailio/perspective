@@ -7,11 +7,11 @@
  *
  */
 
-const load_perspective = require("../../obj/psp.async.js").load_perspective;
-const perspective = require("./perspective.js");
+const load_perspective = require("../../build/psp.async.js").load_perspective;
+const createPerspectiveRuntime = require("@jpmorganchase/perspective-runtime");
 
 if (global.document !== undefined && typeof WebAssembly !== "undefined") {
-    module.exports = perspective(
+    module.exports = createPerspectiveRuntime(
         load_perspective({
             wasmJSMethod: "native-wasm",
             printErr: x => console.error(x),
@@ -19,5 +19,5 @@ if (global.document !== undefined && typeof WebAssembly !== "undefined") {
         })
     );
 } else {
-    module.exports = perspective(load_perspective);
+    module.exports = createPerspectiveRuntime(load_perspective);
 }

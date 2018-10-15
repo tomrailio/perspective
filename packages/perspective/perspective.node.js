@@ -7,31 +7,23 @@
  *
  */
 
-import buffer from "../../obj/psp.sync.wasm";
-
-const perspective = require("./perspective.js");
-
+const createPerspectiveRuntime = require("@jpmorganchase/perspective-runtime");
 const fs = require("fs");
 const http = require("http");
-const WebSocket = require("ws");
-const process = require("process");
-
 const path = require("path");
+const WebSocket = require("ws");
 
-const load_perspective = require("../../obj/psp.sync.js").load_perspective;
-
-// eslint-disable-next-line no-undef
-const RESOLVER = typeof __non_webpack_require__ !== "undefined" ? __non_webpack_require__.resolve : module.require.resolve;
+const load_perspective = require("./obj/psp.sync.js").load_perspective;
 
 const LOCAL_PATH = path.join(process.cwd(), "node_modules");
 
 let Module = load_perspective({
-    wasmBinary: buffer,
+    wasmBinary: fs.readFileSync(path.join(__dirname, "obj/psp.sync.wasm")),
     wasmJSMethod: "native-wasm",
     ENVIRONMENT: "NODE"
 });
 
-module.exports = perspective(Module);
+module.exports = createPerspectiveRuntime(Module);
 delete module.exports["worker"];
 
 let CLIENT_ID_GEN = 0;
@@ -89,9 +81,9 @@ function create_http_server(assets, host_psp) {
             if (host_psp || typeof host_psp === "undefined") {
                 for (let rootDir of DEFAULT_ASSETS) {
                     try {
-                        let paths = RESOLVER.paths(rootDir + url);
+                        let paths = module.require.resolve.paths(rootDir + url);
                         paths = [...paths, ...assets.map(x => path.join(x, "node_modules")), LOCAL_PATH];
-                        let filePath = RESOLVER(rootDir + url, {paths});
+                        let filePath = module.require.resolve(rootDir + url, {paths});
                         let content = await read_promise(filePath);
                         if (typeof content !== "undefined") {
                             console.log(`200 ${url}`);

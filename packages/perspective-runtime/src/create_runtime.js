@@ -7,15 +7,16 @@
  *
  */
 
-import {AGGREGATE_DEFAULTS, FILTER_DEFAULTS, SORT_ORDERS, TYPE_AGGREGATES, TYPE_FILTERS, COLUMN_SEPARATOR_STRING} from "./defaults.js";
-import {DateParser, is_valid_date} from "./date_parser.js";
-import {bindall} from "./utils.js";
 
-import {Precision} from "@apache-arrow/es5-esm/type";
-import {Table} from "@apache-arrow/es5-esm/table";
-import {TypeVisitor} from "@apache-arrow/es5-esm/visitor";
-import formatters from "./view_formatters";
+import {Precision} from "apache-arrow/type";
+import {Table} from "apache-arrow/table";
+import {TypeVisitor} from "apache-arrow/visitor";
 import papaparse from "papaparse";
+
+import {AGGREGATE_DEFAULTS, FILTER_DEFAULTS, SORT_ORDERS, TYPE_AGGREGATES, TYPE_FILTERS, COLUMN_SEPARATOR_STRING} from "./constants";
+import {bindall} from "./bind-all";
+import {DateParser, is_valid_date} from "./date_parser";
+import formatters from "./view_formatters";
 
 // IE fix - chrono::steady_clock depends on performance.now() which does not exist in IE workers
 if (global.performance === undefined) {

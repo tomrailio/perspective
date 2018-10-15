@@ -8,7 +8,7 @@
  */
 
 const load_perspective = require("../../obj/psp.asmjs.js").load_perspective;
-const perspective = require("./perspective.js");
+const createPerspectiveRuntime = require("@jpmorganchase/perspective-runtime");
 
 const Module = load_perspective({
     wasmJSMethod: "asmjs",
@@ -16,4 +16,5 @@ const Module = load_perspective({
     printErr: x => console.error(x),
     print: x => console.log(x)
 });
-module.exports = perspective(Module);
+
+module.exports = createPerspectiveRuntime(Module);

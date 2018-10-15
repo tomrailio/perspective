@@ -11,7 +11,7 @@ const argv = require("minimist")(process.argv.slice(2));
 const WEB_ASMJS_OPTIONS = {
     inputFile: "psp.asmjs.js",
     format: false,
-    packageName: "perspective",
+    packageName: "perspective-js",
     build: !!argv.asmjs // should we build asm?
 };
 
@@ -22,7 +22,7 @@ const WEB_WASM_OPTIONS = {
     inputFile: "psp.async.js",
     inputWasmFile: "psp.async.wasm",
     format: true,
-    packageName: "perspective",
+    packageName: "perspective-js",
     build: !!argv.wasm // flag as to whether to build
 };
 
@@ -48,6 +48,7 @@ const RUNTIMES = AVAILABLE_RUNTIMES.filter(runtime => runtime.build).length ? AV
 // Directory of Emscripten output
 const BASE_DIRECTORY = path.join(__dirname, "..", "obj", "build");
 const getOuputDir = packageName => path.join(__dirname, "..", "packages", packageName, "obj");
+const getBuildDir = packageName => path.join(__dirname, "..", "packages", packageName, "build");
 
 const templateSource = source => `
 var window = window || {};
@@ -66,7 +67,9 @@ function compileRuntime({inputFile, inputWasmFile, format, packageName}) {
 
     if (inputWasmFile) {
         console.log("Copying WASM file %s", inputWasmFile);
-        fs.copyFileSync(path.join(BASE_DIRECTORY, inputWasmFile), path.join(OUTPUT_DIRECTORY, inputWasmFile));
+        const BUILD_DIRECTORY = getBuildDir(packageName);
+        mkdirp.sync(BUILD_DIRECTORY);
+        fs.copyFileSync(path.join(BASE_DIRECTORY, inputWasmFile), path.join(BUILD_DIRECTORY, inputWasmFile));
     }
 
     console.debug("Creating wrapped js runtime");
