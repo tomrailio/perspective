@@ -10,6 +10,10 @@
 import papaparse from "papaparse";
 import moment from "moment";
 
+import arrow from "../arrow/test-null.arrow";
+import chunked from "../arrow/chunked.arrow";
+
+
 var data = [{x: 1, y: "a", z: true}, {x: 2, y: "b", z: false}, {x: 3, y: "c", z: true}, {x: 4, y: "d", z: false}];
 
 var col_data = {
@@ -41,9 +45,6 @@ var meta_3 = {
 };
 
 let column_meta = [{name: "x", type: "integer", computed: undefined}, {name: "y", type: "string", computed: undefined}, {name: "z", type: "boolean", computed: undefined}];
-
-import arrow from "../arrow/test-null.arrow";
-import chunked from "../arrow/chunked.arrow";
 
 var arrow_result = [
     {
