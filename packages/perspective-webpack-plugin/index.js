@@ -22,20 +22,6 @@ class PerspectiveWebpackPlugin {
         const load_path = [__dirname.replace("-webpack-plugin", "")];
         const rules = [
             {
-                test: /\.less$/,
-                exclude: /themes/,
-                include: load_path,
-                use: [{loader: "css-loader"}, {loader: "clean-css-loader", options: {level: 2}}, {loader: "less-loader"}]
-            },
-            {
-                test: /\.(html)$/,
-                include: load_path,
-                use: {
-                    loader: "html-loader",
-                    options: {}
-                }
-            },
-            {
                 test: /\.(arrow)$/,
                 include: load_path,
                 use: {
