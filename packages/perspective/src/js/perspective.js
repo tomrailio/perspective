@@ -957,7 +957,7 @@ export default function(Module) {
 
         let schema = this.gnode.get_tblschema();
 
-        // Row Pivots
+        // Aggregates
         let aggregates = [];
         if (typeof config.aggregate === "object") {
             for (let aidx = 0; aidx < config.aggregate.length; aidx++) {
@@ -1024,33 +1024,29 @@ export default function(Module) {
         if (config.row_pivot.length > 0 || config.column_pivot.length > 0) {
             if (config.column_pivot && config.column_pivot.length > 0) {
                 config.row_pivot = config.row_pivot || [];
-                context = __MODULE__.make_context_two(schema, config.row_pivot, config.column_pivot, filter_op, filters, aggregates, sort.length > 0, this.pool, this.gnode, name);
+                context = __MODULE__.make_context_two(
+                    schema,
+                    config.row_pivot,
+                    config.column_pivot,
+                    filter_op,
+                    filters,
+                    aggregates,
+                    config.row_pivot_depth,
+                    config.column_pivot_depth,
+                    sort.length > 0,
+                    this.pool,
+                    this.gnode,
+                    name
+                );
+
                 sides = 2;
-
-                if (config.row_pivot_depth !== undefined) {
-                    context.set_depth(__MODULE__.t_header.HEADER_ROW, config.row_pivot_depth - 1);
-                } else {
-                    context.set_depth(__MODULE__.t_header.HEADER_ROW, config.row_pivot.length);
-                }
-
-                if (config.column_pivot_depth !== undefined) {
-                    context.set_depth(__MODULE__.t_header.HEADER_COLUMN, config.column_pivot_depth - 1);
-                } else {
-                    context.set_depth(__MODULE__.t_header.HEADER_COLUMN, config.column_pivot.length);
-                }
 
                 if (sort.length > 0 || col_sort.length > 0) {
                     __MODULE__.sort(context, sort, col_sort);
                 }
             } else {
-                context = __MODULE__.make_context_one(schema, config.row_pivot, filter_op, filters, aggregates, sort, this.pool, this.gnode, name);
+                context = __MODULE__.make_context_one(schema, config.row_pivot, filter_op, filters, aggregates, sort, config.row_pivot_depth, this.pool, this.gnode, name);
                 sides = 1;
-
-                if (config.row_pivot_depth !== undefined) {
-                    context.set_depth(config.row_pivot_depth - 1);
-                } else {
-                    context.set_depth(config.row_pivot.length);
-                }
             }
         } else {
             context = __MODULE__.make_context_zero(

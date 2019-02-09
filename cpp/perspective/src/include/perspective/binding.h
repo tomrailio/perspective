@@ -307,7 +307,7 @@ make_context_zero(t_schema schema, t_filter_op combiner, T j_filters, T j_column
 template <typename T>
 std::shared_ptr<t_ctx1>
 make_context_one(t_schema schema, T j_pivots, t_filter_op combiner, T j_filters, T j_aggs,
-    T j_sortby, t_pool* pool, std::shared_ptr<t_gnode> gnode, std::string name);
+    T j_sortby, T j_pivot_depth, t_pool* pool, std::shared_ptr<t_gnode> gnode, std::string name);
 
 /**
  *
@@ -323,7 +323,7 @@ make_context_one(t_schema schema, T j_pivots, t_filter_op combiner, T j_filters,
 template <typename T>
 std::shared_ptr<t_ctx2>
 make_context_two(t_schema schema, T j_rpivots, T j_cpivots, t_filter_op combiner,
-    T j_filters, T j_aggs, bool show_totals, t_pool* pool, std::shared_ptr<t_gnode> gnode,
+    T j_filters, T j_aggs, T j_rpivot_depth, T j_cpivot_depth, bool show_totals, t_pool* pool, std::shared_ptr<t_gnode> gnode,
     std::string name);
 
 template <typename T>
