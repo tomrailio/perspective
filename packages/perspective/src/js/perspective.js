@@ -922,6 +922,19 @@ export default function(Module) {
             "pct sum grand total": __MODULE__.t_aggtype.AGGTYPE_PCT_SUM_GRAND_TOTAL
         };
 
+        /**
+         * TODO:
+         * 0. move term maps above into static members of View
+         * 1. move filter, sort, agg parsing and construction into C++
+         *    - make_sort, make_fterms, make_aggspec
+         *    - converts vals + arrays to native DS, constructs vectors of
+         *      t_sortspec, t_fterm, t_aggspec objects.
+         * 2. remove _get_fterms, _get_sort, _get_aggspecs, and pass through
+         *    the js arrays into make_context, and use the new methods to parse
+         *    i.e. `make_context_zero(config.row_pivots) etc.
+         * 3. change the structure of view, remove all references to pool, gnode, etc.
+         */
+
         let name = Math.random() + "";
 
         config.row_pivot = config.row_pivot || [];
