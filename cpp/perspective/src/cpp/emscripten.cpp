@@ -98,10 +98,16 @@ namespace binding {
     _get_fterms(t_schema schema, val j_filters) {
         std::vector<t_fterm> fvec{};
         std::vector<val> filters = vecFromArray<val, val>(j_filters);
+
         for (auto fidx = 0; fidx < filters.size(); ++fidx) {
             std::vector<val> filter = vecFromArray<val, val>(filters[fidx]);
             std::string coln = filter[0].as<std::string>();
-            t_filter_op comp = filter[1].as<t_filter_op>();
+            t_filter_op comp = str_to_filter_op(filter[1].as<std::string>());
+
+            // check validity and if_date
+            t_dtype coln_type = schema.get_dtype(coln);
+            bool is_date_filter
+                = (coln_type == t_dtype::DTYPE_DATE || coln_type == t_dtype::DTYPE_TIME);
 
             switch (comp) {
                 case FILTER_OP_NOT_IN:
@@ -116,7 +122,7 @@ namespace binding {
                 } break;
                 default: {
                     t_tscalar term;
-                    switch (schema.get_dtype(coln)) {
+                    switch (coln_type) {
                         case DTYPE_INT32:
                             term = mktscalar(filter[2].as<std::int32_t>());
                             break;
@@ -179,7 +185,7 @@ namespace binding {
         for (auto idx = 0; idx < aggs.size(); ++idx) {
             std::vector<val> agg_row = vecFromArray<val, val>(aggs[idx]);
             std::string name = agg_row[0].as<std::string>();
-            t_aggtype aggtype = agg_row[1].as<t_aggtype>();
+            t_aggtype aggtype = str_to_aggtype(agg_row[1].as<std::string>());
 
             std::vector<t_dep> dependencies;
             std::vector<val> deps = vecFromArray<val, val>(agg_row[2]);
@@ -2090,6 +2096,12 @@ EMSCRIPTEN_BINDINGS(perspective) {
         .value("TOTALS_BEFORE", TOTALS_BEFORE)
         .value("TOTALS_HIDDEN", TOTALS_HIDDEN)
         .value("TOTALS_AFTER", TOTALS_AFTER);
+
+    /******************************************************************************
+     *
+     * data loading
+     */
+    function("str_to_filter_op", &str_to_filter_op);
 
     /******************************************************************************
      *

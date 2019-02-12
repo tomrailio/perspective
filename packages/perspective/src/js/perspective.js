@@ -869,62 +869,9 @@ export default function(Module) {
     table.prototype.view = function(config) {
         config = {...config};
 
-        const _string_to_filter_op = {
-            "&": __MODULE__.t_filter_op.FILTER_OP_AND,
-            "|": __MODULE__.t_filter_op.FILTER_OP_OR,
-            "<": __MODULE__.t_filter_op.FILTER_OP_LT,
-            ">": __MODULE__.t_filter_op.FILTER_OP_GT,
-            "==": __MODULE__.t_filter_op.FILTER_OP_EQ,
-            contains: __MODULE__.t_filter_op.FILTER_OP_CONTAINS,
-            "<=": __MODULE__.t_filter_op.FILTER_OP_LTEQ,
-            ">=": __MODULE__.t_filter_op.FILTER_OP_GTEQ,
-            "!=": __MODULE__.t_filter_op.FILTER_OP_NE,
-            "begins with": __MODULE__.t_filter_op.FILTER_OP_BEGINS_WITH,
-            "ends with": __MODULE__.t_filter_op.FILTER_OP_ENDS_WITH,
-            or: __MODULE__.t_filter_op.FILTER_OP_OR,
-            in: __MODULE__.t_filter_op.FILTER_OP_IN,
-            "not in": __MODULE__.t_filter_op.FILTER_OP_NOT_IN,
-            and: __MODULE__.t_filter_op.FILTER_OP_AND,
-            "is nan": __MODULE__.t_filter_op.FILTER_OP_IS_NAN,
-            "is not nan": __MODULE__.t_filter_op.FILTER_OP_IS_NOT_NAN
-        };
-
-        const _string_to_aggtype = {
-            "distinct count": __MODULE__.t_aggtype.AGGTYPE_DISTINCT_COUNT,
-            distinctcount: __MODULE__.t_aggtype.AGGTYPE_DISTINCT_COUNT,
-            distinct: __MODULE__.t_aggtype.AGGTYPE_DISTINCT_COUNT,
-            sum: __MODULE__.t_aggtype.AGGTYPE_SUM,
-            mul: __MODULE__.t_aggtype.AGGTYPE_MUL,
-            avg: __MODULE__.t_aggtype.AGGTYPE_MEAN,
-            mean: __MODULE__.t_aggtype.AGGTYPE_MEAN,
-            count: __MODULE__.t_aggtype.AGGTYPE_COUNT,
-            "weighted mean": __MODULE__.t_aggtype.AGGTYPE_WEIGHTED_MEAN,
-            unique: __MODULE__.t_aggtype.AGGTYPE_UNIQUE,
-            any: __MODULE__.t_aggtype.AGGTYPE_ANY,
-            median: __MODULE__.t_aggtype.AGGTYPE_MEDIAN,
-            join: __MODULE__.t_aggtype.AGGTYPE_JOIN,
-            div: __MODULE__.t_aggtype.AGGTYPE_SCALED_DIV,
-            add: __MODULE__.t_aggtype.AGGTYPE_SCALED_ADD,
-            dominant: __MODULE__.t_aggtype.AGGTYPE_DOMINANT,
-            "first by index": __MODULE__.t_aggtype.AGGTYPE_FIRST,
-            "last by index": __MODULE__.t_aggtype.AGGTYPE_LAST,
-            and: __MODULE__.t_aggtype.AGGTYPE_AND,
-            or: __MODULE__.t_aggtype.AGGTYPE_OR,
-            last: __MODULE__.t_aggtype.AGGTYPE_LAST_VALUE,
-            high: __MODULE__.t_aggtype.AGGTYPE_HIGH_WATER_MARK,
-            low: __MODULE__.t_aggtype.AGGTYPE_LOW_WATER_MARK,
-            "sum abs": __MODULE__.t_aggtype.AGGTYPE_SUM_ABS,
-            "sum not null": __MODULE__.t_aggtype.AGGTYPE_SUM_NOT_NULL,
-            "mean by count": __MODULE__.t_aggtype.AGGTYPE_MEAN_BY_COUNT,
-            identity: __MODULE__.t_aggtype.AGGTYPE_IDENTITY,
-            "distinct leaf": __MODULE__.t_aggtype.AGGTYPE_DISTINCT_LEAF,
-            "pct sum parent": __MODULE__.t_aggtype.AGGTYPE_PCT_SUM_PARENT,
-            "pct sum grand total": __MODULE__.t_aggtype.AGGTYPE_PCT_SUM_GRAND_TOTAL
-        };
-
         /**
          * TODO:
-         * 0. move term maps above into static members of View
+         * 0. move term maps above into base.cpp - done
          * 1. move filter, sort, agg parsing and construction into C++
          *    - make_sort, make_fterms, make_aggspec
          *    - converts vals + arrays to native DS, constructs vectors of
@@ -958,13 +905,13 @@ export default function(Module) {
                 .filter(filter => isValidFilter(filter))
                 .map(filter => {
                     if (isDateFilter(filter[0])) {
-                        return [filter[0], _string_to_filter_op[filter[1]], new DateParser().parse(filter[2])];
+                        return [filter[0], filter[1], new DateParser().parse(filter[2])];
                     } else {
-                        return [filter[0], _string_to_filter_op[filter[1]], filter[2]];
+                        return [filter[0], filter[1], filter[2]];
                     }
                 });
             if (config.filter_op) {
-                filter_op = _string_to_filter_op[config.filter_op];
+                filter_op = __MODULE__.str_to_filter_op(config.filter_op);
             }
         }
 
@@ -975,9 +922,9 @@ export default function(Module) {
         if (typeof config.aggregate === "object") {
             for (let aidx = 0; aidx < config.aggregate.length; aidx++) {
                 let agg = config.aggregate[aidx];
-                let agg_op = _string_to_aggtype[agg.op];
+                let agg_op = agg.op;
                 if (config.column_only) {
-                    agg_op = __MODULE__.t_aggtype.AGGTYPE_ANY;
+                    agg_op = "any";
                     config.aggregate[aidx].op = "any";
                 }
                 if (typeof agg.column === "string") {
@@ -995,9 +942,9 @@ export default function(Module) {
             let t_aggtypes = schema.types();
             for (let aidx = 0; aidx < t_aggs.size(); aidx++) {
                 let column = t_aggs.get(aidx);
-                let agg_op = __MODULE__.t_aggtype.AGGTYPE_ANY;
+                let agg_op = "any";
                 if (!config.column_only) {
-                    agg_op = _string_to_aggtype[defaults.AGGREGATE_DEFAULTS[get_column_type(t_aggtypes.get(aidx).value)]];
+                    agg_op = defaults.AGGREGATE_DEFAULTS[get_column_type(t_aggtypes.get(aidx).value)];
                 }
                 if (column !== "psp_okey") {
                     aggregates.push([column, agg_op, [column]]);

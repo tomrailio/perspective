@@ -59,6 +59,7 @@ private:
     std::string m_name;
     std::string m_separator;
 
+    // FIXME: refactor to be vectors of t_aggspec, etc.
     std::vector<std::string> m_row_pivots;
     std::vector<std::string> m_column_pivots;
     std::vector<std::pair<std::vector<std::string>, std::string>> m_aggregates;
