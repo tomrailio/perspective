@@ -32,6 +32,15 @@ using namespace perspective;
 
 namespace perspective {
 namespace binding {
+    /******************************************************************************
+     *
+     * Utility
+     */
+    template <>
+    bool
+    hasValue(val item) {
+        return (!item.isUndefined() && !item.isNull());
+    }
 
     /******************************************************************************
      *
@@ -69,20 +78,6 @@ namespace binding {
     }
 
     /**
-     * @brief specify sort parameters
-     *
-     * @tparam T
-     * @param j_fterms
-     * @return std::vector<t_sortspec>
-     */
-    template <>
-    std::vector<t_sortspec>
-    make_sort(val j_fterms) {
-        std::vector<t_sortspec> svec{};
-        return svec;
-    }
-
-    /**
      *
      *
      * Params
@@ -99,6 +94,12 @@ namespace binding {
         std::vector<t_fterm> fvec{};
         std::vector<val> filters = vecFromArray<val, val>(j_filters);
 
+        // TODO: we really need a date parser on C++
+        auto _is_date_filter
+            = [](t_dtype type) { return (type == DTYPE_DATE || type == DTYPE_TIME); };
+
+        auto _is_valid_filter = [](std::vector<val> filter) { return hasValue(filter[2]); };
+
         for (auto fidx = 0; fidx < filters.size(); ++fidx) {
             std::vector<val> filter = vecFromArray<val, val>(filters[fidx]);
             std::string coln = filter[0].as<std::string>();
@@ -106,8 +107,12 @@ namespace binding {
 
             // check validity and if_date
             t_dtype coln_type = schema.get_dtype(coln);
-            bool is_date_filter
-                = (coln_type == t_dtype::DTYPE_DATE || coln_type == t_dtype::DTYPE_TIME);
+            bool is_date = _is_date_filter(coln_type);
+            bool is_valid = _is_valid_filter(filter);
+
+            if (!is_valid) {
+                continue;
+            }
 
             switch (comp) {
                 case FILTER_OP_NOT_IN:
@@ -154,20 +159,6 @@ namespace binding {
     }
 
     /**
-     * @brief specify filter terms
-     *
-     * @tparam T
-     * @param j_fterms
-     * @return std::vector<t_fterm>
-     */
-    template <>
-    std::vector<t_fterm>
-    _make_fterms(val j_fterms) {
-        std::vector<t_fterm> fvec{};
-        return fvec;
-    }
-
-    /**
      *
      *
      * Params
@@ -179,47 +170,53 @@ namespace binding {
      *
      */
     std::vector<t_aggspec>
-    _get_aggspecs(val j_aggs) {
-        std::vector<val> aggs = vecFromArray<val, val>(j_aggs);
+    _get_aggspecs(t_schema schema, val j_aggs) {
         std::vector<t_aggspec> aggspecs;
-        for (auto idx = 0; idx < aggs.size(); ++idx) {
-            std::vector<val> agg_row = vecFromArray<val, val>(aggs[idx]);
-            std::string name = agg_row[0].as<std::string>();
-            t_aggtype aggtype = str_to_aggtype(agg_row[1].as<std::string>());
 
-            std::vector<t_dep> dependencies;
-            std::vector<val> deps = vecFromArray<val, val>(agg_row[2]);
-            for (auto didx = 0; didx < deps.size(); ++didx) {
-                if (deps[didx].isUndefined()) {
-                    continue;
+        if (j_aggs.typeOf().as<std::string>() == "object") {
+            // TODO: add construction phase to this block
+            std::vector<val> aggs = vecFromArray<val, val>(j_aggs);
+
+            for (auto idx = 0; idx < aggs.size(); ++idx) {
+                std::vector<val> agg_row = vecFromArray<val, val>(aggs[idx]);
+                std::string name = agg_row[0].as<std::string>();
+                t_aggtype aggtype = str_to_aggtype(agg_row[1].as<std::string>());
+
+                std::vector<t_dep> dependencies;
+                std::vector<val> deps = vecFromArray<val, val>(agg_row[2]);
+                for (auto didx = 0; didx < deps.size(); ++didx) {
+                    if (deps[didx].isUndefined()) {
+                        continue;
+                    }
+                    std::string dep = deps[didx].as<std::string>();
+                    dependencies.push_back(t_dep(dep, DEPTYPE_COLUMN));
                 }
-                std::string dep = deps[didx].as<std::string>();
-                dependencies.push_back(t_dep(dep, DEPTYPE_COLUMN));
+                if (aggtype == AGGTYPE_FIRST || aggtype == AGGTYPE_LAST) {
+                    if (dependencies.size() == 1) {
+                        dependencies.push_back(t_dep("psp_pkey", DEPTYPE_COLUMN));
+                    }
+                    aggspecs.push_back(
+                        t_aggspec(name, name, aggtype, dependencies, SORTTYPE_ASCENDING));
+                } else {
+                    aggspecs.push_back(t_aggspec(name, aggtype, dependencies));
+                }
             }
-            if (aggtype == AGGTYPE_FIRST || aggtype == AGGTYPE_LAST) {
-                if (dependencies.size() == 1) {
-                    dependencies.push_back(t_dep("psp_pkey", DEPTYPE_COLUMN));
+        } else {
+            // No specified aggregates - set defaults for each column
+            auto col_names = schema.columns();
+            auto col_types = schema.types();
+            std::string agg_op = "any";
+
+            for (std::size_t aidx = 0, max = col_names.size(); aidx != max; ++aidx) {
+                std::string name = col_names[aidx];
+                std::vector<t_dep> dependencies{t_dep(name, DEPTYPE_COLUMN)};
+                // TODO: add if !column_only
+                if (name != "psp_okey") {
+                    aggspecs.push_back(t_aggspec(name, str_to_aggtype(agg_op), dependencies));
                 }
-                aggspecs.push_back(
-                    t_aggspec(name, name, aggtype, dependencies, SORTTYPE_ASCENDING));
-            } else {
-                aggspecs.push_back(t_aggspec(name, aggtype, dependencies));
             }
         }
-        return aggspecs;
-    }
 
-    /**
-     * @brief specify aggregations
-     *
-     * @tparam T
-     * @param j_aggs
-     * @return std::vector<t_aggspec>
-     */
-    template <>
-    std::vector<t_aggspec>
-    _make_aggspecs(val j_aggs) {
-        std::vector<t_aggspec> aggspecs;
         return aggspecs;
     }
 
@@ -1367,11 +1364,11 @@ namespace binding {
     std::shared_ptr<View<CTX_T>>
     make_view(t_pool* pool, std::shared_ptr<CTX_T> ctx, std::int32_t sides,
         std::shared_ptr<t_gnode> gnode, std::string name, std::string separator, val config) {
-        val js_row_pivot = config["row_pivot"];
-        val js_column_pivot = config["column_pivot"];
-        val js_aggregate = config["aggregate"];
-        val js_filter = config["filter"];
-        val js_sort = config["sort"];
+        val j_row_pivot = config["row_pivot"];
+        val j_column_pivot = config["column_pivot"];
+        val j_aggregate = config["aggregate"];
+        val j_filter = config["filter"];
+        val j_sort = config["sort"];
 
         std::vector<std::string> row_pivot;
         std::vector<std::string> column_pivot;
@@ -1379,81 +1376,29 @@ namespace binding {
         std::vector<std::vector<std::string>> filter;
         std::vector<std::vector<std::string>> sort;
 
-        if (!js_row_pivot.isUndefined()) {
-            row_pivot = vecFromArray<val, std::string>(js_row_pivot);
+        std::vector<t_fterm> ft;
+
+        // TODO: eventually we will move these lambdas onto the new Table class
+        auto schema = gnode->get_tblschema();
+        t_filter_op filter_op = t_filter_op::FILTER_OP_AND;
+
+        if (j_row_pivot["length"].as<std::int32_t>() == 0
+            && j_column_pivot["length"].as<std::int32_t>() > 0) {
+            row_pivot.push_back("psp_okey");
+            // FIXME: reduce boundary use
+            config["column_only"] = val(true);
         }
 
-        if (!js_column_pivot.isUndefined()) {
-            column_pivot = vecFromArray<val, std::string>(js_column_pivot);
-        }
-
-        if (!js_aggregate.isUndefined()) {
-            std::int32_t agg_length = js_aggregate["length"].as<std::int32_t>();
-
-            for (auto i = 0; i < agg_length; ++i) {
-                std::vector<std::string> agg;
-
-                val current_aggregate = js_aggregate[i];
-                val col = current_aggregate["column"];
-
-                // TODO: make the API for aggregate configs clearer
-                if (col.typeOf().as<std::string>() == "string") {
-                    agg.push_back(col.as<std::string>());
-                } else {
-                    agg.push_back(col[0].as<std::string>());
-                }
-
-                std::string op = current_aggregate["op"].as<std::string>();
-
-                auto parsed_agg = std::make_pair(agg, op);
-                aggregate.push_back(parsed_agg);
-            }
-        }
-
-        if (!js_filter.isUndefined()) {
-            std::int32_t filter_length = js_filter["length"].as<std::int32_t>();
-
-            for (auto i = 0; i < filter_length; ++i) {
-                val current_filter = js_filter[i];
-                std::vector<std::string> filt;
-
-                for (auto idx = 0; idx < current_filter["length"].as<std::int32_t>(); ++idx) {
-                    val item = current_filter[idx];
-                    std::string item_type = item.typeOf().as<std::string>();
-                    std::stringstream ss;
-
-                    // FIXME: streamline this a bit
-                    if (item_type == "number") {
-                        ss << item.as<double>();
-                    } else if (item_type == "boolean") {
-                        ss << item.as<bool>();
-                    } else if (!item.isNull() && !item.isUndefined() && item_type == "object"
-                        && !item.call<val>("toString").isUndefined()) {
-                        // FIXME: lol
-                        ss << item.call<val>("toString").as<std::string>();
-                    } else {
-                        // FIXME: implement properly
-                        ss << "";
-                    }
-
-                    filt.push_back(ss.str());
-                }
-
-                filter.push_back(filt);
-            }
-        }
-
-        if (!js_sort.isUndefined()) {
-            std::int32_t sort_length = js_sort["length"].as<std::int32_t>();
-
-            for (auto i = 0; i < sort_length; ++i) {
-                val current_sort = js_sort[i];
-                sort.push_back(vecFromArray<val, std::string>(current_sort));
+        if (hasValue(j_filter)) {
+            ft = _get_fterms(schema, j_filter);
+            if (hasValue(config["filter_op"])) {
+                filter_op = str_to_filter_op(config["filter_op"].as<std::string>());
             }
         }
 
         auto view_ptr = std::make_shared<View<CTX_T>>(pool, ctx, sides, gnode, name, separator,
             row_pivot, column_pivot, aggregate, filter, sort);
+
         return view_ptr;
     }
 
@@ -1501,7 +1446,7 @@ namespace binding {
         val j_aggs, val j_sortby, val j_pivot_depth, t_pool* pool,
         std::shared_ptr<t_gnode> gnode, std::string name) {
         auto fvec = _get_fterms(schema, j_filters);
-        auto aggspecs = _get_aggspecs(j_aggs);
+        auto aggspecs = _get_aggspecs(schema, j_aggs);
         auto pivots = vecFromArray<val, std::string>(j_pivots);
         auto svec = _get_sort(j_sortby);
 
@@ -1540,7 +1485,7 @@ namespace binding {
         val j_filters, val j_aggs, val j_rpivot_depth, val j_cpivot_depth, bool show_totals,
         t_pool* pool, std::shared_ptr<t_gnode> gnode, std::string name) {
         auto fvec = _get_fterms(schema, j_filters);
-        auto aggspecs = _get_aggspecs(j_aggs);
+        auto aggspecs = _get_aggspecs(schema, j_aggs);
         auto rpivots = vecFromArray<val, std::string>(j_rpivots);
         auto cpivots = vecFromArray<val, std::string>(j_cpivots);
         t_totals total = show_totals ? TOTALS_BEFORE : TOTALS_HIDDEN;

@@ -894,22 +894,10 @@ export default function(Module) {
         }
 
         // Filters
-        let filters = [];
+        let filters = config.filter || [];
         let filter_op = __MODULE__.t_filter_op.FILTER_OP_AND;
 
         if (config.filter) {
-            let schema = this._schema();
-            let isDateFilter = this._is_date_filter(schema);
-            let isValidFilter = this._is_valid_filter;
-            filters = config.filter
-                .filter(filter => isValidFilter(filter))
-                .map(filter => {
-                    if (isDateFilter(filter[0])) {
-                        return [filter[0], filter[1], new DateParser().parse(filter[2])];
-                    } else {
-                        return [filter[0], filter[1], filter[2]];
-                    }
-                });
             if (config.filter_op) {
                 filter_op = __MODULE__.str_to_filter_op(config.filter_op);
             }
