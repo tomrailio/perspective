@@ -170,35 +170,58 @@ namespace binding {
      *
      */
     std::vector<t_aggspec>
-    _get_aggspecs(t_schema schema, val j_aggs) {
+    _get_aggspecs(t_schema schema, bool column_only, val j_aggs) {
         std::vector<t_aggspec> aggspecs;
 
         if (j_aggs.typeOf().as<std::string>() == "object") {
-            // TODO: add construction phase to this block
+            // Construct aggregates from array
             std::vector<val> aggs = vecFromArray<val, val>(j_aggs);
 
             for (auto idx = 0; idx < aggs.size(); ++idx) {
-                std::vector<val> agg_row = vecFromArray<val, val>(aggs[idx]);
-                std::string name = agg_row[0].as<std::string>();
-                t_aggtype aggtype = str_to_aggtype(agg_row[1].as<std::string>());
-
+                val agg = aggs[idx];
+                val col = agg["column"];
+                std::string col_name;
+                std::string agg_op = agg["op"].as<std::string>();
                 std::vector<t_dep> dependencies;
-                std::vector<val> deps = vecFromArray<val, val>(agg_row[2]);
-                for (auto didx = 0; didx < deps.size(); ++didx) {
-                    if (deps[didx].isUndefined()) {
-                        continue;
-                    }
-                    std::string dep = deps[didx].as<std::string>();
-                    dependencies.push_back(t_dep(dep, DEPTYPE_COLUMN));
+
+                if (column_only) {
+                    agg_op = "any";
                 }
+
+                if (col.typeOf().as<std::string>() == "string") {
+                    col_name = col.as<std::string>();
+                    dependencies.push_back(t_dep(col_name, DEPTYPE_COLUMN));
+                } else {
+                    // Dependencies specified - use name as col_name, column is list of
+                    // dependencies
+                    col_name = agg["name"].as<std::string>();
+                    std::vector<val> deps = vecFromArray<val, val>(col);
+
+                    if ((agg_op == "weighted mean" && deps.size() != 2)
+                        || (agg_op != "weighted mean" && deps.size() != 1)) {
+                        PSP_COMPLAIN_AND_ABORT(agg_op + " has incorrect arity ("
+                            + std::to_string(deps.size()) + ") for column dependencies.");
+                    }
+
+                    for (auto didx = 0; didx < deps.size(); ++didx) {
+                        if (!hasValue(deps[didx])) {
+                            continue;
+                        }
+                        std::string dep = deps[didx].as<std::string>();
+                        dependencies.push_back(t_dep(dep, DEPTYPE_COLUMN));
+                    }
+                }
+
+                t_aggtype aggtype = str_to_aggtype(agg_op);
+
                 if (aggtype == AGGTYPE_FIRST || aggtype == AGGTYPE_LAST) {
                     if (dependencies.size() == 1) {
                         dependencies.push_back(t_dep("psp_pkey", DEPTYPE_COLUMN));
                     }
-                    aggspecs.push_back(
-                        t_aggspec(name, name, aggtype, dependencies, SORTTYPE_ASCENDING));
+                    aggspecs.push_back(t_aggspec(
+                        col_name, col_name, aggtype, dependencies, SORTTYPE_ASCENDING));
                 } else {
-                    aggspecs.push_back(t_aggspec(name, aggtype, dependencies));
+                    aggspecs.push_back(t_aggspec(col_name, aggtype, dependencies));
                 }
             }
         } else {
@@ -210,7 +233,16 @@ namespace binding {
             for (std::size_t aidx = 0, max = col_names.size(); aidx != max; ++aidx) {
                 std::string name = col_names[aidx];
                 std::vector<t_dep> dependencies{t_dep(name, DEPTYPE_COLUMN)};
-                // TODO: add if !column_only
+
+                if (!column_only) {
+                    std::string type_str = dtype_to_str(col_types[aidx]);
+                    if (type_str == "float" || type_str == "integer") {
+                        agg_op = "sum";
+                    } else {
+                        agg_op = "distinct count";
+                    }
+                }
+
                 if (name != "psp_okey") {
                     aggspecs.push_back(t_aggspec(name, str_to_aggtype(agg_op), dependencies));
                 }
@@ -1372,28 +1404,34 @@ namespace binding {
 
         std::vector<std::string> row_pivot;
         std::vector<std::string> column_pivot;
-        std::vector<std::pair<std::vector<std::string>, std::string>> aggregate;
-        std::vector<std::vector<std::string>> filter;
-        std::vector<std::vector<std::string>> sort;
-
-        std::vector<t_fterm> ft;
+        std::vector<t_aggspec> aggregate;
+        std::vector<t_fterm> filter;
+        std::vector<t_sortspec> sort;
 
         // TODO: eventually we will move these lambdas onto the new Table class
         auto schema = gnode->get_tblschema();
         t_filter_op filter_op = t_filter_op::FILTER_OP_AND;
 
+        // FIXME: EM_ASM(return new DateParser());
+        // Through module, pass reference to date_parser and create a new one within emscripten
+
+        bool column_only = false; // FIXME: remove eventually
         if (j_row_pivot["length"].as<std::int32_t>() == 0
             && j_column_pivot["length"].as<std::int32_t>() > 0) {
             row_pivot.push_back("psp_okey");
-            // FIXME: reduce boundary use
             config["column_only"] = val(true);
+            column_only = true;
         }
 
         if (hasValue(j_filter)) {
-            ft = _get_fterms(schema, j_filter);
+            filter = _get_fterms(schema, j_filter);
             if (hasValue(config["filter_op"])) {
                 filter_op = str_to_filter_op(config["filter_op"].as<std::string>());
             }
+        }
+
+        if (hasValue(j_aggregate)) {
+            aggregate = _get_aggspecs(schema, column_only, j_aggregate);
         }
 
         auto view_ptr = std::make_shared<View<CTX_T>>(pool, ctx, sides, gnode, name, separator,
@@ -1443,10 +1481,10 @@ namespace binding {
     template <>
     std::shared_ptr<t_ctx1>
     make_context_one(t_schema schema, val j_pivots, t_filter_op combiner, val j_filters,
-        val j_aggs, val j_sortby, val j_pivot_depth, t_pool* pool,
+        val j_aggs, val j_sortby, val j_pivot_depth, bool j_column_only, t_pool* pool,
         std::shared_ptr<t_gnode> gnode, std::string name) {
         auto fvec = _get_fterms(schema, j_filters);
-        auto aggspecs = _get_aggspecs(schema, j_aggs);
+        auto aggspecs = _get_aggspecs(schema, j_column_only, j_aggs);
         auto pivots = vecFromArray<val, std::string>(j_pivots);
         auto svec = _get_sort(j_sortby);
 
@@ -1482,10 +1520,10 @@ namespace binding {
     template <>
     std::shared_ptr<t_ctx2>
     make_context_two(t_schema schema, val j_rpivots, val j_cpivots, t_filter_op combiner,
-        val j_filters, val j_aggs, val j_rpivot_depth, val j_cpivot_depth, bool show_totals,
-        t_pool* pool, std::shared_ptr<t_gnode> gnode, std::string name) {
+        val j_filters, val j_aggs, val j_rpivot_depth, val j_cpivot_depth, bool j_column_only,
+        bool show_totals, t_pool* pool, std::shared_ptr<t_gnode> gnode, std::string name) {
         auto fvec = _get_fterms(schema, j_filters);
-        auto aggspecs = _get_aggspecs(schema, j_aggs);
+        auto aggspecs = _get_aggspecs(schema, j_column_only, j_aggs);
         auto rpivots = vecFromArray<val, std::string>(j_rpivots);
         auto cpivots = vecFromArray<val, std::string>(j_cpivots);
         t_totals total = show_totals ? TOTALS_BEFORE : TOTALS_HIDDEN;
@@ -1637,8 +1675,7 @@ EMSCRIPTEN_BINDINGS(perspective) {
         // FIXME: lmao
         .constructor<t_pool*, std::shared_ptr<t_ctx0>, std::int32_t, std::shared_ptr<t_gnode>,
             std::string, std::string, std::vector<std::string>, std::vector<std::string>,
-            std::vector<std::pair<std::vector<std::string>, std::string>>,
-            std::vector<std::vector<std::string>>, std::vector<std::vector<std::string>>>()
+            std::vector<t_aggspec>, std::vector<t_fterm>, std::vector<t_sortspec>>()
         .smart_ptr<std::shared_ptr<View<t_ctx0>>>("shared_ptr<View_ctx0>")
         .function("delete_view", &View<t_ctx0>::delete_view)
         .function("num_rows", &View<t_ctx0>::num_rows)
@@ -1650,8 +1687,7 @@ EMSCRIPTEN_BINDINGS(perspective) {
     class_<View<t_ctx1>>("View_ctx1")
         .constructor<t_pool*, std::shared_ptr<t_ctx1>, std::int32_t, std::shared_ptr<t_gnode>,
             std::string, std::string, std::vector<std::string>, std::vector<std::string>,
-            std::vector<std::pair<std::vector<std::string>, std::string>>,
-            std::vector<std::vector<std::string>>, std::vector<std::vector<std::string>>>()
+            std::vector<t_aggspec>, std::vector<t_fterm>, std::vector<t_sortspec>>()
         .smart_ptr<std::shared_ptr<View<t_ctx1>>>("shared_ptr<View_ctx1>")
         .function("delete_view", &View<t_ctx1>::delete_view)
         .function("num_rows", &View<t_ctx1>::num_rows)
@@ -1666,8 +1702,7 @@ EMSCRIPTEN_BINDINGS(perspective) {
     class_<View<t_ctx2>>("View_ctx2")
         .constructor<t_pool*, std::shared_ptr<t_ctx2>, std::int32_t, std::shared_ptr<t_gnode>,
             std::string, std::string, std::vector<std::string>, std::vector<std::string>,
-            std::vector<std::pair<std::vector<std::string>, std::string>>,
-            std::vector<std::vector<std::string>>, std::vector<std::vector<std::string>>>()
+            std::vector<t_aggspec>, std::vector<t_fterm>, std::vector<t_sortspec>>()
         .smart_ptr<std::shared_ptr<View<t_ctx2>>>("shared_ptr<View_ctx2>")
         .function("delete_view", &View<t_ctx2>::delete_view)
         .function("num_rows", &View<t_ctx2>::num_rows)
