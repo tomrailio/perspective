@@ -828,34 +828,40 @@ export default function(Module) {
      * @param {Array<Array<string>>} [config.filter] An Array of Filter configurations to
      * apply.  A filter configuration is an array of 3 elements:  A column name,
      * a supported filter comparison string (e.g. '===', '>'), and a value to compare.
-     * @param {Array<string>} [config.sort] An Array of column names by which to sort.
+     * @param {Array<Array<string>>} [config.sort] An Array of Sort configurations to apply.
+     * A sort configuration is an array of two elements: a column name, and a sort direction
+     * such as "asc", "desc".
      *
      * @example
      * var view = table.view({
      *      row_pivot: ['region'],
      *      aggregate: [{op: 'dominant', column:'region'}],
      *      filter: [['client', 'contains', 'fred']],
-     *      sort: ['value']
+     *      sort: [['value', 'asc']]
      * });
      *
      * @returns {view} A new {@link view} object for the supplied configuration,
      * bound to this table
      */
     table.prototype.view = function(config) {
+        // FIXME: sort config does not actually work? or the documentation for sort config is bad
+        // FIXME: adding value in config does NOT translate to correctly set view elems/actual operations
+        // FIXME: does perspective-viewer respect config passed into table.prototype.view
+        // FIXME: view config format should be canonical to viewer options
         config = {...config};
 
-        /**
-         * TODO:
-         * 0. move term maps above into base.cpp - done
-         * 1. move filter, sort, agg parsing and construction into C++
-         *    - make_sort, make_fterms, make_aggspec
-         *    - converts vals + arrays to native DS, constructs vectors of
-         *      t_sortspec, t_fterm, t_aggspec objects.
-         * 2. remove _get_fterms, _get_sort, _get_aggspecs, and pass through
-         *    the js arrays into make_context, and use the new methods to parse
-         *    i.e. `make_context_zero(config.row_pivots) etc.
-         * 3. change the structure of view, remove all references to pool, gnode, etc.
-         */
+        // FIXME: remove this after sort is ported
+        const get_aggname = function(agg) {
+            let agg_name;
+            if (typeof agg.column === "object") {
+                agg_name = agg.column.join(defaults.COLUMN_SEPARATOR_STRING);
+            } else if (agg.name) {
+                agg_name = agg.name;
+            } else {
+                agg_name = agg.column;
+            }
+            return agg_name;
+        };
 
         let name = Math.random() + "";
 
@@ -884,30 +890,7 @@ export default function(Module) {
         let aggregates = config.aggregate;
 
         // Sort
-        let sort = [],
-            col_sort = [];
-        if (config.sort) {
-            sort = config.sort
-                .filter(x => x.length === 1 || x[1].indexOf("col") === -1)
-                .map(x => {
-                    if (!Array.isArray(x)) {
-                        return [aggregates.map(agg => agg[0]).indexOf(x), 1];
-                    } else {
-                        const order = defaults.SORT_ORDER_IDS[defaults.SORT_ORDERS.indexOf(x[1])];
-                        return [aggregates.map(agg => agg[0]).indexOf(x[0]), order];
-                    }
-                });
-            col_sort = config.sort
-                .filter(x => x.length === 2 && x[1].indexOf("col") > -1)
-                .map(x => {
-                    if (!Array.isArray(x)) {
-                        return [aggregates.map(agg => agg[0]).indexOf(x), 1];
-                    } else {
-                        const order = defaults.SORT_ORDER_IDS[defaults.SORT_ORDERS.indexOf(x[1])];
-                        return [aggregates.map(agg => agg[0]).indexOf(x[0]), order];
-                    }
-                });
-        }
+        let sort = config.sort || [];
 
         let context;
         let sides = 0;
@@ -921,20 +904,16 @@ export default function(Module) {
                     filter_op,
                     filters,
                     aggregates,
+                    sort,
                     config.row_pivot_depth,
                     config.column_pivot_depth,
                     config.column_only,
-                    sort.length > 0,
                     this.pool,
                     this.gnode,
                     name
                 );
 
                 sides = 2;
-
-                if (sort.length > 0 || col_sort.length > 0) {
-                    __MODULE__.sort(context, sort, col_sort);
-                }
             } else {
                 context = __MODULE__.make_context_one(schema, config.row_pivot, filter_op, filters, aggregates, sort, config.row_pivot_depth, config.column_only, this.pool, this.gnode, name);
                 sides = 1;
@@ -943,7 +922,7 @@ export default function(Module) {
             // If aggs specified, use them because schema.columns() does not reflect which cols we show/hide
             let columns;
             if (aggregates) {
-                columns = aggregates.map(agg => agg.column);
+                columns = aggregates.map(agg => get_aggname(agg));
             } else {
                 let t_aggs = schema.columns();
                 columns = extract_vector(t_aggs).filter(name => name !== "psp_okey");

@@ -49,30 +49,58 @@ namespace binding {
 
     template <>
     std::vector<t_sortspec>
-    _get_sort(val j_sortby) {
+    _get_sort(t_schema schema, bool is_column_sort, val j_sortby) {
         std::vector<t_sortspec> svec{};
         std::vector<val> sortbys = vecFromArray<val, val>(j_sortby);
-        for (auto idx = 0; idx < sortbys.size(); ++idx) {
-            std::vector<std::int32_t> sortby = vecFromArray<val, std::int32_t>(sortbys[idx]);
-            t_sorttype sorttype;
-            switch (sortby[1]) {
-                case 0:
-                    sorttype = SORTTYPE_ASCENDING;
-                    break;
-                case 1:
-                    sorttype = SORTTYPE_DESCENDING;
-                    break;
-                case 2:
-                    sorttype = SORTTYPE_NONE;
-                    break;
-                case 3:
-                    sorttype = SORTTYPE_ASCENDING_ABS;
-                    break;
-                case 4:
-                    sorttype = SORTTYPE_DESCENDING_ABS;
-                    break;
+
+        // FIXME: this is rough
+        auto _is_valid_sort = [is_column_sort](val sort_item) {
+            std::int32_t sort_length = sort_item["length"].as<std::int32_t>();
+            std::cout << sort_length << std::endl;
+
+            if (sort_length == 2) {
+                std::string op = sort_item[1].as<std::string>();
+                bool is_col_sortop = op.find("col") != std::string::npos;
+                /**
+                 * If column sort, make sure string matches. Otherwise make
+                 * sure string is *not* a column sort.
+                 */
+                return (is_column_sort && is_col_sortop) || !is_col_sortop;
+            } else {
+                // Should not be able to column sort without a specified operation.
+                return !is_column_sort;
             }
-            svec.push_back(t_sortspec(sortby[0], sorttype));
+        };
+
+        for (auto idx = 0; idx < sortbys.size(); ++idx) {
+            val sort_item = sortbys[idx];
+            t_index agg_index;
+            std::string col_name;
+            t_sorttype sorttype;
+
+            if (sort_item.typeOf().as<std::string>() == "object") {
+                std::string sort_op_str;
+                if (!_is_valid_sort(sort_item)) {
+                    std::cout << "BAD" << std::endl;
+                    continue;
+                }
+
+                if (sort_item["length"].as<std::int32_t>() == 2) {
+                    sort_op_str = sort_item[1].as<std::string>();
+                } else {
+                    sort_op_str = "desc";
+                }
+
+                col_name = sort_item[0].as<std::string>();
+                sorttype = str_to_sorttype(sort_op_str);
+            } else {
+                // only name provided - use default sort order
+                col_name = sort_item.as<std::string>();
+                sorttype = t_sorttype::SORTTYPE_DESCENDING;
+            }
+
+            agg_index = schema.get_colidx(col_name); // FIXME: get actual aggregate index
+            svec.push_back(t_sortspec(agg_index, sorttype));
         }
         return svec;
     }
@@ -192,16 +220,21 @@ namespace binding {
                     col_name = col.as<std::string>();
                     dependencies.push_back(t_dep(col_name, DEPTYPE_COLUMN));
                 } else {
-                    // Dependencies specified - use name as col_name, column is list of
-                    // dependencies
-                    col_name = agg["name"].as<std::string>();
+                    /**
+                     * Handle new column syntax, where syntax is either
+                     * {name: "x", column: ["a", "b"]} or {column: ["x"]}
+                     * FIXME: document new syntax/make tests canonical to one syntax
+                     */
                     std::vector<val> deps = vecFromArray<val, val>(col);
 
-                    if ((agg_op == "weighted mean" && deps.size() != 2)
-                        || (agg_op != "weighted mean" && deps.size() != 1)) {
+                    if ((agg_op != "weighted mean" && deps.size() != 1)
+                        || (agg_op == "weighted mean" && deps.size() != 2)) {
+                        // FIXME: cannot back out without debug builds
                         PSP_COMPLAIN_AND_ABORT(agg_op + " has incorrect arity ("
                             + std::to_string(deps.size()) + ") for column dependencies.");
                     }
+
+                    std::ostringstream oss;
 
                     for (auto didx = 0; didx < deps.size(); ++didx) {
                         if (!hasValue(deps[didx])) {
@@ -209,6 +242,15 @@ namespace binding {
                         }
                         std::string dep = deps[didx].as<std::string>();
                         dependencies.push_back(t_dep(dep, DEPTYPE_COLUMN));
+                        oss << dep;
+                        oss << "|";
+                    }
+
+                    col_name = oss.str();
+                    col_name.pop_back();
+
+                    if (hasValue(agg["name"])) {
+                        col_name = agg["name"].as<std::string>();
                     }
                 }
 
@@ -1457,7 +1499,7 @@ namespace binding {
         val j_sortby, t_pool* pool, std::shared_ptr<t_gnode> gnode, std::string name) {
         auto columns = vecFromArray<val, std::string>(j_columns);
         auto fvec = _get_fterms(schema, j_filters);
-        auto svec = _get_sort(j_sortby);
+        auto svec = _get_sort(schema, false, j_sortby);
         auto cfg = t_config(columns, combiner, fvec);
         auto ctx0 = std::make_shared<t_ctx0>(schema, cfg);
         ctx0->init();
@@ -1486,7 +1528,7 @@ namespace binding {
         auto fvec = _get_fterms(schema, j_filters);
         auto aggspecs = _get_aggspecs(schema, j_column_only, j_aggs);
         auto pivots = vecFromArray<val, std::string>(j_pivots);
-        auto svec = _get_sort(j_sortby);
+        auto svec = _get_sort(schema, false, j_sortby);
 
         auto cfg = t_config(pivots, aggspecs, combiner, fvec);
         auto ctx1 = std::make_shared<t_ctx1>(schema, cfg);
@@ -1520,13 +1562,16 @@ namespace binding {
     template <>
     std::shared_ptr<t_ctx2>
     make_context_two(t_schema schema, val j_rpivots, val j_cpivots, t_filter_op combiner,
-        val j_filters, val j_aggs, val j_rpivot_depth, val j_cpivot_depth, bool j_column_only,
-        bool show_totals, t_pool* pool, std::shared_ptr<t_gnode> gnode, std::string name) {
+        val j_filters, val j_aggs, val j_sortby, val j_rpivot_depth, val j_cpivot_depth,
+        bool j_column_only, t_pool* pool, std::shared_ptr<t_gnode> gnode, std::string name) {
         auto fvec = _get_fterms(schema, j_filters);
         auto aggspecs = _get_aggspecs(schema, j_column_only, j_aggs);
         auto rpivots = vecFromArray<val, std::string>(j_rpivots);
         auto cpivots = vecFromArray<val, std::string>(j_cpivots);
-        t_totals total = show_totals ? TOTALS_BEFORE : TOTALS_HIDDEN;
+        auto svec = _get_sort(schema, false, j_sortby);
+        auto col_svec = _get_sort(schema, true, j_sortby);
+
+        t_totals total = svec.size() > 0 ? TOTALS_BEFORE : TOTALS_HIDDEN;
 
         auto cfg = t_config(rpivots, cpivots, aggspecs, total, combiner, fvec);
         auto ctx2 = std::make_shared<t_ctx2>(schema, cfg);
@@ -1549,17 +1594,15 @@ namespace binding {
             ctx2->set_depth(t_header::HEADER_COLUMN, cpivots.size());
         }
 
-        return ctx2;
-    }
-
-    template <>
-    void
-    sort(std::shared_ptr<t_ctx2> ctx2, val j_sortby, val j_column_sortby) {
-        auto svec = _get_sort(j_sortby);
         if (svec.size() > 0) {
             ctx2->sort_by(svec);
         }
-        ctx2->column_sort_by(_get_sort(j_column_sortby));
+
+        if (col_svec.size() > 0) {
+            ctx2->column_sort_by(col_svec);
+        }
+
+        return ctx2;
     }
 
     template <>
@@ -2087,7 +2130,6 @@ EMSCRIPTEN_BINDINGS(perspective) {
      *
      * assorted functions
      */
-    function("sort", &sort<val>);
     function("make_table", &make_table<val>, allow_raw_pointers());
     function("make_gnode", &make_gnode);
     function("clone_gnode_table", &clone_gnode_table<val>, allow_raw_pointers());
